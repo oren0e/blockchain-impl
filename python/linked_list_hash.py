@@ -42,12 +42,13 @@ class Blockchain:
     def _hash_block_data(block: Block) -> hashlib._Hash:
         if isinstance(block.data, (int, float)):
             block.data_hash = sha256(bytes(block.data))
-            return block.data_hash
         elif isinstance(block.data, str):
             block.data_hash = sha256(bytes(block.data.encode("utf-8")))
-            return block.data_hash
+        elif isinstance(block.data, bytes):
+            block.data_hash = sha256(block.data)
         else:
             raise TypeError(f"Data type {type(block.data)} not supported")
+        return block.data_hash
 
     def _hash_block(self, block: Block) -> hashlib._Hash:
         if block.data and not block.next_hash:

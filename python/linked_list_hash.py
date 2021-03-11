@@ -1,15 +1,14 @@
 from __future__ import annotations
 import hashlib
 from hashlib import sha256
-from typing import Optional, Union
+from typing import Optional, Union, Generic, TypeVar
 
 
 """
 Blockchain as a linked list with hash pointers
 """
 
-
-Data = Union[int, float, str]
+T = TypeVar("T")
 
 
 def display_x_characters_of_string(string: str, num_characters: int = 7) -> str:
@@ -18,8 +17,8 @@ def display_x_characters_of_string(string: str, num_characters: int = 7) -> str:
     return start + "..." + end
 
 
-class Block:
-    def __init__(self, data: Data) -> None:
+class Block(Generic[T]):
+    def __init__(self, data: T) -> None:
         self.data = data
         self.hash: Optional[hashlib._Hash] = None
         self.next_hash: Optional[hashlib._Hash] = None

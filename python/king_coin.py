@@ -6,6 +6,8 @@ from typing import Tuple, Optional, Dict
 
 from dataclasses import dataclass
 
+from collections import defaultdict
+
 import binascii
 import os
 
@@ -40,8 +42,8 @@ class Transaction:
 
 
 class CoinMaker:
-    def __init__(self, coin_name: str, owner: str) -> None:
-        self.owner = owner      # will be removed in later versions (in favour of decentralized design)
+    def __init__(self, coin_name: str, name: str) -> None:
+        self.name = name     # will be removed in later versions (in favour of decentralized design)
         self.coin_name = coin_name
         self.pool: float = 0
         self.private_key, self.public_key = generate_keys()
@@ -51,7 +53,7 @@ class CoinMaker:
         return self.public_key
 
     def mint_single_coin(self) -> Transaction:
-        coin = binascii.b2a_hex(os.urandom(self.number_of_bytes))
+        coin = binascii.b2a_hex(os.urandom(self.number_of_bytes))   # generate random coin id
         signature = self.private_key.sign(coin,
                                           padding.PSS(mgf=padding.MGF1(hashes.SHA256()),
                                                       salt_length=padding.PSS.MAX_LENGTH),
@@ -59,7 +61,7 @@ class CoinMaker:
         transaction = Transaction(content=coin,
                                   type=TransactionType.mint,
                                   currency=self.coin_name,
-                                  party_from=self.owner,
+                                  party_from=self.name,
                                   amount=1,
                                   signature=signature)
         self.pool += 1
@@ -75,7 +77,7 @@ class CoinMaker:
         transaction = Transaction(content=coin_id_and_public_key,
                                   type=TransactionType.transfer,
                                   currency=self.coin_name,
-                                  party_from=self.owner,
+                                  party_from=self.name,
                                   party_to=to_name,
                                   amount=1,
                                   signature=signature)
@@ -83,14 +85,14 @@ class CoinMaker:
         return transaction
 
     def __repr__(self) -> str:
-        return repr(f"CoinMaker(owner={self.owner}, coin_name={self.coin_name}, pool={self.pool})")
+        return repr(f"CoinMaker(name={self.name}, coin_name={self.coin_name}, pool={self.pool})")
 
 
 class Person:
     def __init__(self, name: str) -> None:
         self.name = name
         self.private_key, self.public_key = generate_keys()
-        self.balance: Dict[str, float] = {}
+        self.balance: Dict[str, float] = defaultdict(float)
 
     def get_public_key(self) -> rsa.RSAPublicKey:
         return self.public_key
@@ -104,12 +106,18 @@ class Environment:
         self.alice = Person(name="Alice")
         self.bob = Person(name="Bob")
         self.coin_maker = coin_maker
+        self.public_keys: Dict[str, rsa.RSAPublicKey] = {}
+
+    def _get_public_keys(self) -> None:
+        for party in [self.alice, self.bob, self.coin_maker]:
+            self.public_keys[party.name] = party.get_public_key()
 
     def run(self) -> None:
+        self._get_public_keys()
         # coin maker mints coin
         transaction0 = self.coin_maker.mint_single_coin()
         # Alice (or someone) verifies the mint
-        self.coin_maker.get_public_key().verify(transaction0.signature, transaction0.content,
+        self.public_keys[self.coin_maker.name].verify(transaction0.signature, transaction0.content,
                                                 padding.PSS(mgf=padding.MGF1(hashes.SHA256()),
                                                             salt_length=padding.PSS.MAX_LENGTH),
                                                 hashes.SHA256())
@@ -117,9 +125,10 @@ class Environment:
         transaction1 = self.coin_maker.send_single_coin_to(to_name=self.alice.name, to_public_key=self.alice.public_key,
                                                            coin_id=transaction0.content)
         # Alice (or someone) verifies
-        self.coin_maker.get_public_key().verify(transaction1.signature, transaction1.content,
+        self.public_keys[self.coin_maker.name].verify(transaction1.signature, transaction1.content,
                                                 padding.PSS(mgf=padding.MGF1(hashes.SHA256()),
                                                             salt_length=padding.PSS.MAX_LENGTH),
                                                 hashes.SHA256())
-        print(f"{self.alice.name} verified successfully that {self.coin_maker.owner}"
+        self.alice.balance[transaction1.currency] += transaction1.amount
+        print(f"{self.alice.name} verified successfully that {self.coin_maker.name}"
               f" gave her 1 {transaction1.currency} coin")

@@ -16,6 +16,7 @@ def environment(coin_maker) -> Environment:
 def test_simple_env_run(environment, capsys) -> None:
     environment.run()
     captured = capsys.readouterr()
-    assert captured.out.strip() == "Alice verified successfully that Johnoshi gave her 1 KingCoin coin"
-    assert environment.coin_maker.pool == 0
-    assert environment.alice.balance["KingCoin"] == 1
+    assert captured.out.strip() == "Alice verified successfully that Johnoshi gave her 1 KingCoin coin\nJohnoshi couldn't have sent this coin to Bob!"
+    assert environment.coin_maker.balance == 0
+    assert environment.alice.balance == 0
+    assert environment.bob.balance == 1

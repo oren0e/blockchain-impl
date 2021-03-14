@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from abc import ABCMeta, abstractmethod
 
-from typing import Tuple, Optional, Dict, Set
+from typing import Tuple, Optional, Dict, Set, List
 
 from dataclasses import dataclass
 
@@ -171,15 +171,35 @@ class Environment:
         self.bob = Person(name="Bob")
         self.coin_maker = coin_maker
         self.public_keys: Dict[str, rsa.RSAPublicKey] = {}
+        self.ledger: List[Transaction] = []
 
     def _get_public_keys(self) -> None:
         for party in [self.alice, self.bob, self.coin_maker]:
             self.public_keys[party.name] = party.get_public_key()
 
+    def validate(self, this_transaction: Transaction) -> None:
+        this_transaction.party_from.public_key.verify(self.ledger[-1].signature, this_transaction.content,
+                                                padding.PSS(mgf=padding.MGF1(hashes.SHA256()),
+                                                            salt_length=padding.PSS.MAX_LENGTH),
+                                                hashes.SHA256())
+        for i, transaction in enumerate(reversed(self.ledger[:-1])):
+            if (transaction.type == TransactionType.mint) or (transaction.party_to is None):
+                return None
+            # Follow chain of ownership:
+            # check that the public_key of the from_party matches the signature of the sending party
+            # in the previous transaction.
+            transaction.party_from.public_key.verify(self.ledger[i + 1].signature, transaction.content,
+                                                       padding.PSS(mgf=padding.MGF1(hashes.SHA256()),
+                                                                   salt_length=padding.PSS.MAX_LENGTH),
+                                                       hashes.SHA256())
+
+
+
     def run(self) -> None:
         self._get_public_keys()
         # coin maker mints coin
         transaction0 = self.coin_maker.mint_single_coin()
+        self.ledger.append(transaction0)
         # Alice (or someone) verifies the mint
         transaction0.party_from.public_key.verify(transaction0.signature, transaction0.content,
                                                 padding.PSS(mgf=padding.MGF1(hashes.SHA256()),
@@ -188,12 +208,9 @@ class Environment:
         # coin maker wants to give the coin to Alice
         transaction1 = self.coin_maker.send_single_coin_to(to_party=self.alice, to_public_key=self.alice.public_key,
                                                            coin=transaction0.coin)
+        self.ledger.append(transaction1)
         # Alice (or someone) verifies
-        # verify that it is from coin_maker and was indeed signed by coin_maker
-        transaction1.party_from.public_key.verify(transaction1.signature, transaction1.content,
-                                                padding.PSS(mgf=padding.MGF1(hashes.SHA256()),
-                                                            salt_length=padding.PSS.MAX_LENGTH),
-                                                hashes.SHA256())
+        self.validate(transaction1)
         self.alice.pool.add(transaction1.coin)
         print(f"{self.alice.name} verified successfully that {self.coin_maker.name}"
               f" gave her 1 {transaction1.currency} coin")
@@ -201,13 +218,15 @@ class Environment:
         # Alice sends the same coin to Bob
         transaction2 = self.alice.send_single_coin_to(to_party=self.bob, to_public_key=self.bob.public_key,
                                        coin=transaction1.coin)
+        self.ledger.append(transaction2)
         # Bob (or anyone else) verifies that Alice can send the coin,
         # matching the public key that was used to give the coin to her with the private key
         # she used to sign the sending transaction
-        transaction1.party_to.public_key.verify(transaction2.signature, transaction2.content,
-                                                 padding.PSS(mgf=padding.MGF1(hashes.SHA256()),
-                                                             salt_length=padding.PSS.MAX_LENGTH),
-                                                 hashes.SHA256())
+        # transaction1.party_to.public_key.verify(transaction2.signature, transaction2.content,
+        #                                          padding.PSS(mgf=padding.MGF1(hashes.SHA256()),
+        #                                                      salt_length=padding.PSS.MAX_LENGTH),
+        #                                          hashes.SHA256())
+        self.validate(transaction2)
         self.bob.pool.add(transaction2.coin)
         # If bob tries to verify that coin_maker sent the coin, it will fail
         try:
